@@ -36,7 +36,7 @@
 #   - This script is provided as-is with no warranty
 # =============================================================================
 
-set -e
+set -eo pipefail
 
 # --- Configuration ---
 CLONE_DIR="$HOME/linux-fairydust"
@@ -145,6 +145,7 @@ install_deps() {
         gcc gcc-c++ make bc bison flex elfutils-libelf-devel \
         ncurses-devel python3 zlib-devel libuuid-devel dwarves \
         xz zstd clang llvm lld git \
+        openssl openssl-devel \
         rust rust-std-static bindgen-cli \
         2>&1 | tee -a "$LOG_FILE"
 
@@ -315,7 +316,7 @@ build_kernel() {
 
     cd "$CLONE_DIR"
 
-    make -j$(nproc) 2>&1 | tee -a "$LOG_FILE"
+    log_and_run make -j$(nproc)
 
     ok "Kernel build completed at: $(date)"
 }
@@ -332,20 +333,20 @@ install_kernel() {
 
     # Install modules, DTBs, VDSO
     info "Installing modules..."
-    sudo make INSTALL_MOD_STRIP=1 modules_install 2>&1 | tee -a "$LOG_FILE"
+    log_and_run sudo make INSTALL_MOD_STRIP=1 modules_install
 
     info "Installing DTBs..."
-    sudo make dtbs_install 2>&1 | tee -a "$LOG_FILE"
+    log_and_run sudo make dtbs_install
 
     info "Installing VDSO..."
-    sudo make vdso_install 2>&1 | tee -a "$LOG_FILE"
+    log_and_run sudo make vdso_install
 
     # Create DTB symlink that Fedora expects
     sudo ln -sf "/boot/dtbs/$KVER" "/usr/lib/modules/$KVER/dtb"
 
     # Install kernel image
     info "Installing kernel image..."
-    sudo make install 2>&1 | tee -a "$LOG_FILE"
+    log_and_run sudo make install
 
     ok "Kernel installed: $KVER"
 }
