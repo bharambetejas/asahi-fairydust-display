@@ -279,6 +279,15 @@ See Documentation/rust/quick-start.rst in the kernel source."
     scripts/config --set-str EFI_SBAT_FILE ""
     scripts/config --disable QRTR_MHI
 
+    # Disable module signing (Fedora config enables this but signing key
+    # doesn't exist in our build, causing modules_install to fail)
+    scripts/config --disable MODULE_SIG
+    scripts/config --disable MODULE_SIG_ALL
+    scripts/config --disable MODULE_SIG_FORCE
+    scripts/config --set-str MODULE_SIG_KEY ""
+    scripts/config --set-str SYSTEM_TRUSTED_KEYS ""
+    scripts/config --set-str SYSTEM_REVOCATION_KEYS ""
+
     # Finalize config
     make olddefconfig 2>&1 | tee -a "$LOG_FILE"
 
