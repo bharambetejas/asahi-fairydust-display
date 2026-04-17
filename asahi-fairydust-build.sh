@@ -200,7 +200,7 @@ clone_source() {
     fi
 
     git clone https://github.com/AsahiLinux/linux.git \
-        --branch "$BRANCH" --single-branch "$CLONE_DIR" 2>&1 | tee -a "$LOG_FILE"
+        --branch "$BRANCH" --depth 1 --single-branch "$CLONE_DIR" 2>&1 | tee -a "$LOG_FILE"
 
     cd "$CLONE_DIR"
     ok "Source cloned to $CLONE_DIR"
