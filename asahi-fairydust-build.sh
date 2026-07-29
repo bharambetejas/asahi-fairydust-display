@@ -360,6 +360,9 @@ update_m1n1() {
 
     sudo ln -sfn "$PWD" /usr/src/linux
 
+    info "Pointing /boot/dtb at this kernel's own devicetree ($KVER)..."
+    sudo ln -sfn "/boot/dtbs/$KVER" /boot/dtb
+
     if sudo update-m1n1 2>&1 | tee -a "$LOG_FILE"; then
         ok "m1n1 updated"
     else
