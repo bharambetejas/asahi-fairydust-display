@@ -39,11 +39,29 @@
 set -eo pipefail
 
 # --- Configuration ---
-CLONE_DIR="$HOME/linux-fairydust"
-BRANCH="fairydust"
-LOCALVERSION="-fairydust"
+# All of these can be overridden from the environment, which makes it possible
+# to build a branch that carries extra patches without editing this script:
+#   REPO_URL=https://github.com/you/linux.git BRANCH=my-branch ./asahi-fairydust-build.sh
+REPO_URL="${REPO_URL:-https://github.com/AsahiLinux/linux.git}"
+CLONE_DIR="${CLONE_DIR:-$HOME/linux-fairydust}"
+BRANCH="${BRANCH:-fairydust}"
+LOCALVERSION="${LOCALVERSION:--fairydust}"
+JOBS="${JOBS:-$(nproc)}"
 DISPLAY_SCRIPT="$HOME/display-setup.sh"
 LOG_FILE="$HOME/fairydust-build.log"
+
+# Prefer the distro Rust toolchain over anything rustup installed.
+#
+# The kernel compiles the Rust core library from source, so rustc and the
+# rust-src tree must be the same version. A rustup toolchain in ~/.cargo/bin
+# takes precedence on PATH and is usually a different version from the
+# rust-src RPM, which makes rust/core.o fail to build with errors like
+# "attributes starting with `rustc` are reserved" and
+# "cannot use `const` closures outside of const contexts".
+if [[ -x /usr/bin/rustc && -d /usr/lib/rustlib/src/rust/library ]]; then
+    export PATH="/usr/bin:$PATH"
+    export RUST_LIB_SRC="/usr/lib/rustlib/src/rust/library"
+fi
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -65,6 +83,12 @@ log_and_run() {
 }
 
 confirm() {
+    # ASSUME_YES lets the build run unattended. NO_REBOOT is handled separately
+    # so that an unattended run never reboots the machine by itself.
+    if [[ "${ASSUME_YES:-0}" == "1" ]]; then
+        info "$1 [auto-yes]"
+        return 0
+    fi
     read -rp "$(echo -e "${YELLOW}$1 [y/N]:${NC} ")" response
     [[ "$response" =~ ^[Yy]$ ]]
 }
@@ -188,19 +212,24 @@ clone_source() {
     echo ""
     info "=== Step 2/9: Cloning fairydust kernel source ==="
 
-    if [[ -d "$CLONE_DIR" ]]; then
-        warn "Directory $CLONE_DIR already exists."
-        if confirm "Delete and re-clone?"; then
-            rm -rf "$CLONE_DIR"
-        else
-            info "Using existing source tree."
-            cd "$CLONE_DIR"
-            return
+    if [[ -d "$CLONE_DIR/.git" ]]; then
+        info "Using existing source tree at $CLONE_DIR"
+        cd "$CLONE_DIR"
+        # Make sure we are actually on the branch we intend to build.
+        if [[ "$(git branch --show-current)" != "$BRANCH" ]]; then
+            info "Checking out $BRANCH"
+            git checkout "$BRANCH" 2>&1 | tee -a "$LOG_FILE"
         fi
+        ok "Branch: $(git branch --show-current)"
+        info "HEAD:   $(git log --oneline -1)"
+        return
     fi
 
-    git clone https://github.com/AsahiLinux/linux.git \
-        --branch "$BRANCH" --depth 1 --single-branch "$CLONE_DIR" 2>&1 | tee -a "$LOG_FILE"
+    # A blobless clone is about the same size as --depth 1 for a checkout, but
+    # keeps history, so the tree stays usable for rebasing local patches onto
+    # a newer upstream instead of having to re-clone.
+    git clone "$REPO_URL" --branch "$BRANCH" --single-branch \
+        --filter=blob:none "$CLONE_DIR" 2>&1 | tee -a "$LOG_FILE"
 
     cd "$CLONE_DIR"
     ok "Source cloned to $CLONE_DIR"
@@ -311,12 +340,12 @@ See Documentation/rust/quick-start.rst in the kernel source."
 build_kernel() {
     echo ""
     info "=== Step 4/9: Building kernel (this will take a while) ==="
-    info "Using $(nproc) parallel jobs"
+    info "Using $JOBS parallel jobs"
     info "Started at: $(date)"
 
     cd "$CLONE_DIR"
 
-    log_and_run make -j$(nproc)
+    log_and_run make -j$JOBS
 
     ok "Kernel build completed at: $(date)"
 }
@@ -491,7 +520,9 @@ print_summary() {
     echo "============================================================"
     echo ""
 
-    if confirm "Reboot now?"; then
+    if [[ "${NO_REBOOT:-0}" == "1" ]]; then
+        info "NO_REBOOT is set. Reboot when ready with: sudo reboot"
+    elif confirm "Reboot now?"; then
         sudo reboot
     else
         info "Reboot when ready with: sudo reboot"
