@@ -1,0 +1,51 @@
+From a0ee8180974f1dc609cf474cb7eb11d0808e440a Mon Sep 17 00:00:00 2001
+From: rgvxsthi <raghavsethi@yandex.com>
+Date: Sat, 25 Jul 2026 19:31:40 +1000
+Subject: [PATCH] drm/apple: reconnect DP2HDMI output on resume
+
+On systems with a built-in HDMI port behind a DP2HDMI bridge,
+dcp_platform_suspend() disables the HPD interrupt and tears the DPTX
+link down. dcp_platform_resume() only re-enables the interrupt.
+
+The HPD interrupt is edge triggered. If the display is left plugged in
+across a suspend/resume cycle there is no edge to trigger it on resume,
+so the link is never re-established and the external display stays dark
+until the cable is physically unplugged and replugged.
+
+Call dcp_enable_dp2hdmi_hpd() from resume instead of a bare
+enable_irq(). It samples the HPD GPIO and calls dcp_dptx_connect() if a
+display is still present before enabling the interrupt, which is the
+same sequence already used from dcp_wait_ready().
+
+Found on a MacBook Pro 14-inch M1 Pro (apple,j314s).
+---
+ drivers/gpu/drm/apple/dcp.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 9dfc3fd002f5..24d5f3e25f60 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -1310,8 +1310,18 @@ static int dcp_platform_resume(struct device *dev)
+ {
+ 	struct apple_dcp *dcp = dev_get_drvdata(dev);
+ 
++	/*
++	 * dcp_platform_suspend() tore the DPTX link down. The HPD interrupt is
++	 * edge triggered, so if the display was never physically unplugged
++	 * across suspend there is no edge to re-trigger it on resume and the
++	 * output stays dark until the user replugs the cable.
++	 *
++	 * dcp_enable_dp2hdmi_hpd() samples the HPD GPIO and reconnects if a
++	 * display is still present before re-enabling the interrupt, which is
++	 * exactly what is needed here.
++	 */
+ 	if (dcp->hdmi_hpd_irq)
+-		enable_irq(dcp->hdmi_hpd_irq);
++		dcp_enable_dp2hdmi_hpd(dcp);
+ 
+ 	if (dcp->avep)
+ 		av_service_connect(dcp);
+-- 
+2.55.0
+

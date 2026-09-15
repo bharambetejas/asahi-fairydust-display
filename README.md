@@ -42,14 +42,44 @@ chmod +x asahi-fairydust-build.sh
 
 1. Installs build dependencies (gcc, Rust toolchain, etc.)
 2. Clones the Asahi Linux `fairydust` kernel branch
-3. Configures the kernel with your existing Fedora config as baseline
-4. Enables Rust support + Asahi GPU driver (prevents lag)
-5. Enables USB-C DisplayPort Alt Mode modules
-6. Builds the kernel (~60-90 min)
-7. Installs kernel, modules, and device tree blobs
-8. Updates m1n1 bootloader and GRUB
-9. Sets up automatic typec module loading
-10. Creates a display hotplug script for automatic configuration
+3. Applies the patches in `patches/` (see below)
+4. Configures the kernel with your existing Fedora config as baseline
+5. Enables Rust support + Asahi GPU driver (prevents lag)
+6. Enables USB-C DisplayPort Alt Mode modules
+7. Builds the kernel (~60-90 min)
+8. Installs kernel, modules, and device tree blobs
+9. Updates m1n1 bootloader and GRUB
+10. Sets up automatic typec module loading
+11. Creates a display hotplug script for automatic configuration
+
+## Patches
+
+Everything in `patches/*.patch` is applied to the branch in filename order
+before the kernel is configured. Already-applied patches are skipped, so
+re-running against an existing checkout is safe. To build the branch
+untouched:
+
+```bash
+SKIP_PATCHES=1 ./asahi-fairydust-build.sh
+```
+
+### `0001-drm-apple-reconnect-DP2HDMI-output-on-resume.patch`
+
+Fixes the built-in HDMI port staying dark after suspend/resume on Macs that
+have one, where the only recovery is unplugging and replugging the cable.
+
+`dcp_platform_suspend()` disables the HPD interrupt and tears the DPTX link
+down. `dcp_platform_resume()` only re-enables the interrupt. That interrupt is
+edge triggered, so a display left plugged in across suspend produces no edge,
+the handler never runs, and nothing calls `dcp_dptx_connect()` again.
+
+The driver already has the right helper — `dcp_enable_dp2hdmi_hpd()` samples
+the HPD GPIO, reconnects if a display is present, then enables the interrupt,
+which is what `dcp_wait_ready()` already does. Resume just wasn't calling it.
+
+Verified on a MacBook Pro 14-inch M1 Pro (`apple,j314s`), kernel 7.0.13. If it
+ever stops applying, the change has most likely landed upstream and the file
+can be deleted.
 
 ## Important Notes
 
